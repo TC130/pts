@@ -1,0 +1,13 @@
+{
+  "egress": "39.106.140.81",
+  "origins": 2,
+  "tests": 26,
+  "classification_counts": {
+    "Actuator 基础端点开放": 6,
+    "Actuator 子端点开放需复核": 5,
+    "Actuator 敏感端点开放": 6,
+    "无法验证": 2,
+    "未开放": 7
+  },
+  "sensitive_open_count": 6
+}
