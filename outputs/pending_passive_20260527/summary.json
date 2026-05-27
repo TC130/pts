@@ -1,0 +1,8 @@
+{
+  "total_unique_pending": 28,
+  "responded": 19,
+  "failed": 9,
+  "with_forms": 0,
+  "with_endpoint_candidates": 5,
+  "with_static_assets_fetched": 9
+}
