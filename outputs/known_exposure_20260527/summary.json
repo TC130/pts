@@ -1,0 +1,11 @@
+{
+  "origins": 66,
+  "tests": 1430,
+  "classification_counts": {
+    "无法验证": 132,
+    "未暴露": 1294,
+    "Actuator 暴露": 4
+  },
+  "notable_count": 4,
+  "public_info_count": 0
+}
