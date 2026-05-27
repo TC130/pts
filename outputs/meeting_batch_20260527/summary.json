@@ -1,0 +1,74 @@
+{
+  "total": 170,
+  "skipped": 1,
+  "tested": 169,
+  "responded": 69,
+  "failed": 100,
+  "pending": 26,
+  "missing_hsts": 64,
+  "missing_many": 69,
+  "default_pages": 11,
+  "server_error": 1,
+  "plain_content": 1,
+  "cors_observed": 1,
+  "status_counts": [
+    [
+      "NO_RESPONSE",
+      100
+    ],
+    [
+      "HTTP/1.1 206 Partial Content",
+      38
+    ],
+    [
+      "HTTP/1.1 404 Not Found",
+      19
+    ],
+    [
+      "HTTP/1.1 200 OK",
+      3
+    ],
+    [
+      "HTTP/1.1 403 Forbidden",
+      3
+    ],
+    [
+      "HTTP/1.1 404",
+      2
+    ],
+    [
+      "HTTP/1.1 301 Moved Permanently",
+      2
+    ],
+    [
+      "HTTP/1.1 200",
+      1
+    ],
+    [
+      "HTTP/1.1 500 Internal Server Error",
+      1
+    ]
+  ],
+  "pending_categories": [
+    [
+      "管理后台",
+      9
+    ],
+    [
+      "登录/认证流程",
+      9
+    ],
+    [
+      "支付/会员功能",
+      8
+    ],
+    [
+      "上传/下载功能",
+      4
+    ],
+    [
+      "报表/导出功能",
+      1
+    ]
+  ]
+}

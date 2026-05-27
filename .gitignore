@@ -4,4 +4,5 @@
 !.env.example
 node_modules
 outputs/asset_vuln_matrix/*.png
+outputs/meeting_batch_20260527/*.png
 pentest_state/local_secrets.md
