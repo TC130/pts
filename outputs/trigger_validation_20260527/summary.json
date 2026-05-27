@@ -1,0 +1,9 @@
+{
+  "time": "2026-05-27 17:41:20 CST",
+  "egress_ip": "39.106.140.81",
+  "attempts": 10,
+  "possible_send_success_count": 0,
+  "rejected_or_http_rejected_count": 10,
+  "needs_review_count": 0,
+  "sms_attempt_limit_observed": "10/10 maximum used for this controlled validation context"
+}
