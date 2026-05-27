@@ -2,3 +2,6 @@
 .env.local
 .env.*
 !.env.example
+node_modules
+outputs/asset_vuln_matrix/*.png
+pentest_state/local_secrets.md
