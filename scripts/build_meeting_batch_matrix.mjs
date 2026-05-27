@@ -2,14 +2,20 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { SpreadsheetFile, Workbook } from "@oai/artifact-tool";
 
-const rows = (await fs.readFile("outputs/meeting_batch_20260527/baseline_results.jsonl", "utf8"))
+const resultsPath = process.env.PENTEST_RESULTS_JSONL || "outputs/meeting_batch_20260527/baseline_results.jsonl";
+const summaryPath = process.env.PENTEST_SUMMARY_JSON || "outputs/meeting_batch_20260527/summary.json";
+const outputDir = path.resolve(process.env.PENTEST_OUTPUT_DIR || "outputs/meeting_batch_20260527");
+const outputPath = path.join(outputDir, process.env.PENTEST_OUTPUT_XLSX || "会议批量资产-漏洞矩阵_20260527.xlsx");
+const batchTitle = process.env.PENTEST_BATCH_TITLE || "会议批量资产 Web 基线汇总";
+const evidencePath = process.env.PENTEST_EVIDENCE_PATH || "pentest_state/requests/meeting-batch-baseline-20260527.txt";
+const reportPath = process.env.PENTEST_REPORT_PATH || "pentest_state/report-meeting-batch-20260527.md";
+
+const rows = (await fs.readFile(resultsPath, "utf8"))
   .trim()
   .split(/\n+/)
   .filter(Boolean)
   .map((line) => JSON.parse(line));
-const summary = JSON.parse(await fs.readFile("outputs/meeting_batch_20260527/summary.json", "utf8"));
-const outputDir = path.resolve("outputs/meeting_batch_20260527");
-const outputPath = path.join(outputDir, "会议批量资产-漏洞矩阵_20260527.xlsx");
+const summary = JSON.parse(await fs.readFile(summaryPath, "utf8"));
 
 function latestStatus(r) {
   return (r.status && r.status.length ? r.status[r.status.length - 1] : "");
@@ -22,7 +28,7 @@ function issueTags(r) {
   if (!latestStatus(r)) tags.push("无法有效验证");
   if (r.url?.startsWith("https://") && r.security_headers_missing?.includes("strict-transport-security")) tags.push("缺少 HSTS");
   if ((r.security_headers_missing || []).length >= 4 && latestStatus(r)) tags.push("缺少多个安全响应头");
-  if (text.includes("welcome to nginx") || text.includes("welcome to openresty") || text.includes("whitelabel error page")) tags.push("默认/框架错误页暴露");
+  if (text.includes("welcome to nginx") || text.includes("welcome to openresty") || text.includes("whitelabel error page") || text.includes("403 forbidden") || text.includes("404 not found")) tags.push("默认/框架错误页暴露");
   if (latestStatus(r).includes("500")) tags.push("未认证 GET 触发 500");
   if (r.url?.startsWith("http://") && (latestStatus(r).includes("200") || latestStatus(r).includes("206"))) tags.push("HTTP 明文返回内容");
   if (Object.keys(r.access_control_headers || {}).length) tags.push("CORS 响应头需复核");
@@ -37,6 +43,11 @@ function risk(r) {
   if (tags.includes("缺少 HSTS") || tags.includes("缺少多个安全响应头")) return "低危";
   if (tags.includes("HTTP 明文返回内容")) return "低危";
   return "无";
+}
+
+function cleanCell(value) {
+  if (typeof value !== "string") return value;
+  return value.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F]/g, " ").slice(0, 32000);
 }
 
 const assetRows = rows.map((r) => [
@@ -73,7 +84,7 @@ for (const r of rows) {
       r.server || "-",
       r.title || "-",
       r.body_snippet || "-",
-      "pentest_state/requests/meeting-batch-baseline-20260527.txt",
+      evidencePath,
     ]);
   }
 }
@@ -98,7 +109,7 @@ const shEvidence = workbook.worksheets.add("证据索引");
 
 function writeTable(sheet, start, headers, data, name) {
   const range = sheet.getRange(start).resize(data.length + 1, headers.length);
-  range.values = [headers, ...data];
+  range.values = [headers, ...data].map((row) => row.map(cleanCell));
   const table = sheet.tables.add(range.address, true, name);
   table.style = "TableStyleMedium2";
   return range;
@@ -120,7 +131,7 @@ function style(sheet, range, widths) {
 }
 
 shSummary.getRange("A1:H1").merge();
-shSummary.getRange("A1").values = [["会议批量资产 Web 基线汇总"]];
+shSummary.getRange("A1").values = [[batchTitle]];
 shSummary.getRange("A1").format.font.bold = true;
 shSummary.getRange("A1").format.font.size = 18;
 shSummary.getRange("A1").format.fill.color = "#1F4E79";
@@ -163,9 +174,9 @@ writeTable(shPending, "A1", ["资产", "待审批类型", "审批状态", "跳�
 style(shPending, shPending.getRange(`A1:F${pendingRows.length + 1}`), [300, 180, 130, 420, 220, 200]);
 
 writeTable(shEvidence, "A1", ["证据/文件", "说明"], [
-  ["pentest_state/requests/meeting-batch-baseline-20260527.txt", "中文证据摘要"],
-  ["outputs/meeting_batch_20260527/baseline_results.jsonl", "逐资产原始基线 JSONL"],
-  ["pentest_state/report-meeting-batch-20260527.md", "中文 Markdown 报告"],
+  [evidencePath, "中文证据摘要"],
+  [resultsPath, "逐资产原始基线 JSONL"],
+  [reportPath, "中文 Markdown 报告"],
 ], "MeetingEvidence");
 style(shEvidence, shEvidence.getRange("A1:B4"), [420, 520]);
 

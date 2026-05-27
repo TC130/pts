@@ -1,0 +1,13 @@
+{
+  "total": 19,
+  "skipped": 10,
+  "tested": 9,
+  "responded": 8,
+  "failed": 1,
+  "pending": 3,
+  "missing_hsts": 8,
+  "cors_suspicious": 0,
+  "default_pages": 4,
+  "server_error": 0,
+  "plain_content": 0
+}

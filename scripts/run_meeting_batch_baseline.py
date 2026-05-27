@@ -8,13 +8,15 @@ import subprocess
 import time
 from datetime import datetime
 from pathlib import Path
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
-TARGET_FILE = Path("pentest_state/targets/meeting-batch-20260527.txt")
-OUT_DIR = Path("outputs/meeting_batch_20260527")
-JSONL = OUT_DIR / "baseline_results.jsonl"
-EVIDENCE = Path("pentest_state/requests/meeting-batch-baseline-20260527.txt")
-SKIPPED = Path("outputs/meeting_batch_20260527/skipped_scope.jsonl")
+TARGET_FILE = Path(os.environ.get("PENTEST_TARGET_FILE", "pentest_state/targets/meeting-batch-20260527.txt"))
+OUT_DIR = Path(os.environ.get("PENTEST_OUTPUT_DIR", "outputs/meeting_batch_20260527"))
+JSONL = OUT_DIR / os.environ.get("PENTEST_JSONL_NAME", "baseline_results.jsonl")
+SUMMARY = OUT_DIR / os.environ.get("PENTEST_SUMMARY_NAME", "summary.json")
+EVIDENCE = Path(os.environ.get("PENTEST_EVIDENCE_FILE", "pentest_state/requests/meeting-batch-baseline-20260527.txt"))
+SKIPPED = OUT_DIR / os.environ.get("PENTEST_SKIPPED_NAME", "skipped_scope.jsonl")
+EVIDENCE_TITLE = os.environ.get("PENTEST_EVIDENCE_TITLE", "会议期间大批量资产只读基线测试")
 
 PROXY_HOST = "39.106.140.81:8877"
 PROXY_USER = os.environ.get("PENTEST_PROXY_USER", "")
@@ -28,12 +30,23 @@ SECURITY_HEADERS = [
     "permissions-policy",
 ]
 SKIP_HOSTS = {"mp.weixin.qq.com"}
+SENSITIVE_QUERY_KEYS = {"access_token", "auth", "key", "secret", "session", "sessionid", "sid", "token"}
 
 
 def clean_url(raw: str) -> str:
     raw = raw.strip()
     parts = urlsplit(raw)
     return urlunsplit((parts.scheme, parts.netloc, parts.path or "/", parts.query, ""))
+
+
+def redact_url(raw: str) -> str:
+    parts = urlsplit(raw.strip())
+    query = parse_qsl(parts.query, keep_blank_values=True)
+    redacted = [
+        (key, "REDACTED" if key.lower() in SENSITIVE_QUERY_KEYS else value)
+        for key, value in query
+    ]
+    return urlunsplit((parts.scheme, parts.netloc, parts.path or "/", urlencode(redacted, doseq=True), ""))
 
 
 def parse_headers(text: str):
@@ -79,13 +92,20 @@ def classify_pending(url: str, title: str, body: str):
     return sorted(set(hits))
 
 
-def request_target(raw_url: str):
+def decode_output(data: bytes) -> str:
+    return data.decode("utf-8", errors="replace")
+
+
+def request_target(order: int, raw_url: str):
     url = clean_url(raw_url)
+    safe_raw_url = redact_url(raw_url)
+    safe_url = redact_url(url)
     host = urlsplit(url).hostname or ""
     if host in SKIP_HOSTS:
         return {
-            "raw_url": raw_url,
-            "url": url,
+            "order": order,
+            "raw_url": safe_raw_url,
+            "url": safe_url,
             "skipped": True,
             "skip_reason": "明显第三方平台，归属需用户确认",
         }
@@ -116,20 +136,23 @@ def request_target(raw_url: str):
         url,
     ]
     start = time.time()
-    p = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    p = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     elapsed = round(time.time() - start, 2)
-    statuses, headers = parse_headers(p.stdout)
-    body = extract_body(p.stdout)
+    stdout = decode_output(p.stdout)
+    stderr = decode_output(p.stderr)
+    statuses, headers = parse_headers(stdout)
+    body = extract_body(stdout)
     title = title_of(body)
     body_text = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", body[:3000])).strip()[:500]
     pending = classify_pending(url, title, body_text)
     return {
-        "raw_url": raw_url,
-        "url": url,
+        "order": order,
+        "raw_url": safe_raw_url,
+        "url": safe_url,
         "skipped": False,
         "exit": p.returncode,
         "elapsed_sec": elapsed,
-        "error": p.stderr.strip()[:220],
+        "error": stderr.strip()[:220],
         "status": statuses[-3:],
         "server": (headers.get("server") or [""])[0],
         "location": (headers.get("location") or [""])[0],
@@ -151,29 +174,50 @@ def main():
     targets = [line.strip() for line in TARGET_FILE.read_text().splitlines() if line.strip() and not line.startswith("#")]
 
     results = []
-    with JSONL.open("w") as jf, SKIPPED.open("w") as sf:
-        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as pool:
-            futures = {pool.submit(request_target, t): t for t in targets}
-            for fut in concurrent.futures.as_completed(futures):
-                item = fut.result()
-                results.append(item)
-                line = json.dumps(item, ensure_ascii=False)
-                if item.get("skipped"):
-                    sf.write(line + "\n")
-                jf.write(line + "\n")
-                jf.flush()
-                print(line, flush=True)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as pool:
+        futures = {pool.submit(request_target, idx, t): t for idx, t in enumerate(targets)}
+        for fut in concurrent.futures.as_completed(futures):
+            item = fut.result()
+            results.append(item)
+            print(json.dumps(item, ensure_ascii=False), flush=True)
 
-    results.sort(key=lambda x: targets.index(x["raw_url"]))
+    results.sort(key=lambda x: x["order"])
+    JSONL.write_text("\n".join(json.dumps(item, ensure_ascii=False) for item in results) + "\n")
+    SKIPPED.write_text("\n".join(json.dumps(item, ensure_ascii=False) for item in results if item.get("skipped")) + "\n")
+
     tested = [r for r in results if not r.get("skipped")]
     responded = [r for r in tested if r.get("status")]
     timed_or_failed = [r for r in tested if not r.get("status")]
     pending = [r for r in tested if r.get("pending_approval_categories")]
     missing_hsts = [r for r in responded if "strict-transport-security" in r.get("security_headers_missing", []) and urlsplit(r["url"]).scheme == "https"]
     cors_suspicious = [r for r in responded if r.get("access_control_headers")]
+    default_pages = [
+        r for r in responded
+        if any(marker in f"{r.get('title', '')} {r.get('body_snippet', '')}".lower() for marker in ["welcome to nginx", "welcome to openresty", "whitelabel error page", "403 forbidden", "404 not found"])
+    ]
+    server_error = [r for r in responded if any(" 500" in status for status in r.get("status", []))]
+    plain_content = [
+        r for r in responded
+        if urlsplit(r["url"]).scheme == "http" and any((" 200" in status or " 206" in status) for status in r.get("status", []))
+    ]
+
+    summary = {
+        "total": len(targets),
+        "skipped": len(results) - len(tested),
+        "tested": len(tested),
+        "responded": len(responded),
+        "failed": len(timed_or_failed),
+        "pending": len(pending),
+        "missing_hsts": len(missing_hsts),
+        "cors_suspicious": len(cors_suspicious),
+        "default_pages": len(default_pages),
+        "server_error": len(server_error),
+        "plain_content": len(plain_content),
+    }
+    SUMMARY.write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n")
 
     lines = [
-        "# 证据：会议期间大批量资产只读基线测试",
+        f"# 证据：{EVIDENCE_TITLE}",
         "",
         f"时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
         f"目标数量：{len(targets)}",
